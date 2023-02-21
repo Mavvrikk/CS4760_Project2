@@ -4,14 +4,17 @@
 #include <sys/wait.h>
 #include <stdlib.h>
 #include <sys/ipc.h>
+#include <sys/shm.h>
+
+int shmkey = 112369;
 
 void helpFunction()
 {
-    printf("The function call should go as follows: ./oss [-h] [-n proc] [-s simu] [-t timeLimit]")
+    printf("The function call should go as follows: ./oss [-h] [-n proc] [-s simu] [-t timeLimit] ");
     printf("where -h displays this help function and terminates, proc is the number of processes you want to run, simu is the number of simultaneous");
     printf("processes that run and timeLimit is approximately the time limit each child process runs.");
 }
-int forker(int totaltoLaunch, int simulLimit, char iterTotal, int totalLaunched)
+int forker(int totaltoLaunch, int simulLimit, char* timeLimit, int totalLaunched)
 {
     pid_t pid;
     if(totalLaunched==simulLimit){
@@ -25,15 +28,20 @@ int forker(int totaltoLaunch, int simulLimit, char iterTotal, int totalLaunched)
         }
         else if (pid == 0)
         {
-        /*CONTENTS OF WORKER FILE*/
+        /* 
+        char* args[] = {"./worker", timeLimit,0}
+        execlp(args[0],args[0],args[1],args[2])
+        */
         
-           
-           }
-           
+        /*CONTENTS OF WORKER FILE*/
+        int runTime;
+        runTime = atoi(timeLimit); // actually argv[1]
+        printf("I am a child and supposed to run %d seconds\n", runTime);
+        exit(0);
         }
         else if(pid > 0)
         {
-            forker(totaltoLaunch - 1, simulLimit, iterTotal, totalLaunched + 1);
+            forker(totaltoLaunch - 1, simulLimit, timeLimit, totalLaunched + 1);
         }
     }
     else
@@ -42,7 +50,7 @@ int forker(int totaltoLaunch, int simulLimit, char iterTotal, int totalLaunched)
 
 char *x = NULL;
 char *y = NULL;
-char *z = NULL;
+char *timeLimit = NULL;
  
 int main(int argc, char** argv)
 {
@@ -59,23 +67,41 @@ int main(int argc, char** argv)
             y = optarg;
             break;
             case 't': 
-            z = optarg;
+            timeLimit = optarg;
             break;
         }
     }
    int totaltoLaunch=0; // int to hold -n arg
    int simulLimit=0; // int to hold -s arg
-   int timeLimit=0; // int to pass to worker (-t arg)
    int totalLaunched=0; // int to count total children launched
    totaltoLaunch = atoi(x); // casting the argv to ints
    simulLimit = atoi(y);
-   timeLimit = z;   
    int status;
+   
+  int shmid = shmget(shmkey,2*sizeof(int),0777|IPC_CREAT); // create shared memory
+  if(shmid==-1)
+  {
+      printf("ERROR IN SHMGET\n");
+      exit(0);
+  }
+   
+   
    int exCess = forker(totaltoLaunch,simulLimit,timeLimit,totalLaunched);
     if (exCess>0)
     for(exCess;exCess>0;exCess--){
-        forker(1,1,iterTotal,totalLaunched);
+        forker(1,1,timeLimit,totalLaunched);
     }
     
     return(0);
 }
+
+
+
+
+
+
+
+
+
+
+
