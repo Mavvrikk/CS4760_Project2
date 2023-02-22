@@ -5,8 +5,16 @@
 #include <stdlib.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
+#include <time.h>
 
 int shmkey = 112369;
+
+struct PCB {
+    int occupied; // either true or false
+    pid_t pid; // PID of this child
+    int startSeconds; // time this was forked
+    int startNano; // time this was forked (nano seconds)
+}
 
 void helpFunction()
 {
@@ -28,16 +36,28 @@ int forker(int totaltoLaunch, int simulLimit, char* timeLimit, int totalLaunched
         }
         else if (pid == 0)
         {
-        /* 
-        char* args[] = {"./worker", timeLimit,0}
-        execlp(args[0],args[0],args[1],args[2])
-        */
+        /*char* args[] = {"./worker", timeLimit,0};
+        execlp(args[0],args[0],args[1],args[2]);*/
         
-        /*CONTENTS OF WORKER FILE*/
-        int runTime;
-        runTime = atoi(timeLimit); // actually argv[1]
-        printf("I am a child and supposed to run %d seconds\n", runTime);
+        /*    CONTENTS OF WORKER FILE
+        int shmkey = 112369;
+        int main (int argc, char** argv){
+        int* shmPtr1;
+   
+        int shmid = shmget(shmkey,2*sizeof(int),0777|IPC_CREAT); // create shared memory
+        if(shmid==-1)
+        {
+        printf("ERROR IN SHMGET\n");
         exit(0);
+        }
+        shmPtr1 = (int*)(shmat(shmid,0,0));
+        */
+        int runTime;
+        runTime = timeLimit; // atoi(argv[1])
+        printf("I am a child and supposed to run %d seconds\n", runTime);
+}
+
+        
         }
         else if(pid > 0)
         {
@@ -77,6 +97,7 @@ int main(int argc, char** argv)
    totaltoLaunch = atoi(x); // casting the argv to ints
    simulLimit = atoi(y);
    int status;
+   int* shmPtr1;
    
   int shmid = shmget(shmkey,2*sizeof(int),0777|IPC_CREAT); // create shared memory
   if(shmid==-1)
@@ -84,14 +105,18 @@ int main(int argc, char** argv)
       printf("ERROR IN SHMGET\n");
       exit(0);
   }
-   
+   shmPtr1 = (int*)(shmat(shmid,0,0));
+   *shmPtr1 = 125;
    
    int exCess = forker(totaltoLaunch,simulLimit,timeLimit,totalLaunched);
+   pid_t pid;
+   pid = wait(&status);
     if (exCess>0)
     for(exCess;exCess>0;exCess--){
         forker(1,1,timeLimit,totalLaunched);
     }
-    
+    shmdt(shmPtr1); // detach shared memory
+    shmctl(shmid,IPC_RMID,NULL);
     return(0);
 }
 
