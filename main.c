@@ -28,37 +28,39 @@ void helpFunction ()
     ("processes that run and timeLimit is approximately the time limit each child process runs.");
 }
 
-int forker (int totaltoLaunch, int simulLimit, int timeLimit, int totalLaunched,
-	PCB * processTable, int* shmSec, int*shmNano)
+int forker (int totaltoLaunch, int simulLimit, int timeLimit, int* totalLaunched, PCB * processTable, int* shmSec, int*shmNano)
 {
-  pid_t pid;
+  pid_t pid;// RECREATES AN EXTRA BECAUSE TOTALLAUNCHED HAS INCREMENTED BUT FUNCTION HASNT TERMINATED 
   
-  processTable[totalLaunched].occupied = 1;
-  processTable[totalLaunched].pid = pid;
-  processTable[totalLaunched].startSeconds = *shmSec;
-  processTable[totalLaunched].startNano = *shmNano;
-  
-  if (totalLaunched == simulLimit)
+    if (*totalLaunched == simulLimit || totaltoLaunch == 0)
     {
       return (totaltoLaunch);
     }
   else if (totaltoLaunch > 0)
     {
-      if ((pid = fork ()) < 0)
+      if ((pid = fork ()) < 0) // FORK HERE
 	{
 	  perror ("fork");
 	}
       else if (pid == 0)
 	{
-	  
+	    srand(time(NULL)*getpid());
+        int rSec = rand() % timeLimit;
+        int rNano = rand()% (100000000);
 
-	  printf ("I am a child and PID: %d PPID: %d \n", getpid(),getppid());
+	  printf ("I am a child and PID: %d PPID: %d ", getpid(),getppid());
+	  printf ("I am supposed to run for %d seconds and %d nano seconds.\n", rSec, rNano);
 	  exit (0);
 
 	}
       else if (pid > 0)
 	{
-	  forker (totaltoLaunch - 1, simulLimit, timeLimit, totalLaunched + 1,
+  processTable[*totalLaunched].occupied = 1;
+  processTable[*totalLaunched].pid = pid;
+  processTable[*totalLaunched].startSeconds = *shmSec;
+  processTable[*totalLaunched].startNano = *shmNano;
+	    *totalLaunched += 1;
+	  forker (totaltoLaunch - 1, simulLimit, timeLimit, totalLaunched,
 		  processTable,shmSec,shmNano);
 	}
     }
@@ -80,7 +82,8 @@ void printStruct (struct PCB *processTable, int size)
 {
   printf ("Process Table: \n");
   printf ("ENTRY  OCCUPIED  PID  STARTS  STARTN\n");
-  for (int i = 0; i < size; i++)
+  int i = 0;
+  for (i; i < size; i++)
     {
       printf ("%d        %d       %d    %d        %d\n", i,
 	      processTable[i].occupied, processTable[i].pid,
@@ -139,14 +142,14 @@ int main (int argc, char **argv)
     //Clock
   shmSec = (int *) (shmat (shmid, 0, 0)); // create clock variables
   shmNano = shmSec + 1;
-  *shmSec = 20; // initialize clock to zero
-  *shmNano = 1000;
+  *shmSec = 0; // initialize clock to zero
+  *shmNano = 0;
   
   // FORK CHILDREN 
-  int exCess = forker (totaltoLaunch, simulLimit, timeLimit, totalLaunched, processTable, shmSec, shmNano);
+  int exCess = forker (totaltoLaunch, simulLimit, timeLimit, &totalLaunched, processTable, shmSec, shmNano);
   for (exCess; exCess > 0; exCess--)
     {
-      forker (1, 1, timeLimit, totalLaunched, processTable, shmSec,shmNano);
+      forker (1, 1, timeLimit, &totalLaunched, processTable, shmSec,shmNano);
     }
     
     // ENSURE YOU'RE A GOOD PARENT
