@@ -28,6 +28,14 @@ void helpFunction ()
     ("processes that run and timeLimit is approximately the time limit each child process runs.");
 }
 
+void incrementClock(int* shmSec, int* shmNano){
+    *shmNano+=1;
+    if (*shmNano >= 100000){
+    *shmSec+=1;
+    *shmNano=0;
+    }
+}
+
 int forker (int totaltoLaunch, int simulLimit, int timeLimit, int* totalLaunched, PCB * processTable, int* shmSec, int*shmNano)
 {
   pid_t pid;// RECREATES AN EXTRA BECAUSE TOTALLAUNCHED HAS INCREMENTED BUT FUNCTION HASNT TERMINATED 
@@ -45,13 +53,11 @@ int forker (int totaltoLaunch, int simulLimit, int timeLimit, int* totalLaunched
       else if (pid == 0)
 	{
 	    srand(time(NULL)*getpid());
-        int rSec = rand() % timeLimit;
-        int rNano = rand()% (100000000);
-
-	  printf ("I am a child and PID: %d PPID: %d ", getpid(),getppid());
-	  printf ("I am supposed to run for %d seconds and %d nano seconds.\n", rSec, rNano);
-	  exit (0);
-
+        int rSec = rand() % timeLimit + 1;
+        int rNano = rand()% (100000);
+        
+        char* args[]={"./worker",rSec,rNano,0};
+        execlp(args[0],args[0],args[1],args[2],args[3]);
 	}
       else if (pid > 0)
 	{
@@ -68,12 +74,17 @@ int forker (int totaltoLaunch, int simulLimit, int timeLimit, int* totalLaunched
     return (0);
 }
 
-bool checkifChildTerminated(int status)
+bool checkifChildTerminated(int status, PCB *processTable)
 {
     int pid = waitpid(-1, &status, WNOHANG);
-    if (pid > 0)
-    //update PCB here
-        return true;
+    int i = 0;
+    if (pid > 0){
+    for (i; i < 20; i++){
+        if (processTable[i].pid == pid)
+            processTable[i].occupied = 0;
+    }
+    return true;
+    }
     else if (pid == 0)
         return false;
 }
@@ -126,10 +137,12 @@ int main (int argc, char **argv)
   simulLimit = atoi (y);
   int timeLimit = atoi (z);
   int status;
+  int exCess;
   int *shmSec;
   int *shmNano;
   PCB processTable[20];
   bool stillChildrenRunning = true;
+  bool initialLaunch = false;
   
 
   int shmid = shmget (shmkey, 2 * sizeof (int), 0777 | IPC_CREAT);	// create shared memory
@@ -144,25 +157,32 @@ int main (int argc, char **argv)
   shmNano = shmSec + 1;
   *shmSec = 0; // initialize clock to zero
   *shmNano = 0;
-  
-  // FORK CHILDREN 
-  int exCess = forker (totaltoLaunch, simulLimit, timeLimit, &totalLaunched, processTable, shmSec, shmNano);
-  for (exCess; exCess > 0; exCess--)
-    {
-      forker (1, 1, timeLimit, &totalLaunched, processTable, shmSec,shmNano);
-    }
     
-    // ENSURE YOU'RE A GOOD PARENT
-  while(stillChildrenRunning){
+    
+   while(stillChildrenRunning){
+  // FORK CHILDREN 
+    incrementClock(shmSec,shmNano);
+    if (*shmNano == 50000){
+    printStruct (processTable, 20);
+    }
+    if(initialLaunch == false){
+        exCess = forker (totaltoLaunch, simulLimit, timeLimit, &totalLaunched, processTable, shmSec, shmNano);
+        initialLaunch = true;
+    }
     bool childHasTerminated = false;
-    childHasTerminated = checkifChildTerminated(status);
-    if(childHasTerminated == true)
+    childHasTerminated = checkifChildTerminated(status, processTable);
+    if(childHasTerminated == true){
+        if (exCess > 0){
+            forker (1, 1, timeLimit, &totalLaunched, processTable, shmSec,shmNano);
+            exCess--;
+        }
         totaltoLaunch--;
+    }
     if (totaltoLaunch == 0)
             stillChildrenRunning = false;
-  }
-  //PRINT TABLE
-  printStruct (processTable, 20);
+    }
+
+printStruct (processTable, 20);
   //DETACH SHARED MEMORY
   shmdt (shmSec);
   shmctl (shmid, IPC_RMID, NULL);
@@ -171,6 +191,8 @@ int main (int argc, char **argv)
 
 
 
+
+// MADE THIS COMMENT
 
 
 
