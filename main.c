@@ -7,8 +7,11 @@
 #include <sys/shm.h>
 #include <time.h>
 #include <stdbool.h>
+#include <signal.h>
 
 int shmkey = 112369;
+bool signalReceived = false;
+bool stillChildrenRunning = true;
 
 typedef struct PCB
 {
@@ -30,13 +33,13 @@ void helpFunction ()
 
 void incrementClock(int* shmSec, int* shmNano){
     *shmNano+=1;
-    if (*shmNano >= 100000){
+    if (*shmNano >= 1000000){
     *shmSec+=1;
     *shmNano=0;
     }
 }
 
-int forker (int totaltoLaunch, int simulLimit, int timeLimit, int* totalLaunched, PCB * processTable, int* shmSec, int*shmNano)
+int forker (int totaltoLaunch, int simulLimit, char* timeLimit, int* totalLaunched, PCB * processTable, int* shmSec, int*shmNano)
 {
   pid_t pid;// RECREATES AN EXTRA BECAUSE TOTALLAUNCHED HAS INCREMENTED BUT FUNCTION HASNT TERMINATED 
   
@@ -52,12 +55,8 @@ int forker (int totaltoLaunch, int simulLimit, int timeLimit, int* totalLaunched
 	}
       else if (pid == 0)
 	{
-	    srand(time(NULL)*getpid());
-        int rSec = rand() % timeLimit + 1;
-        int rNano = rand()% (100000);
-        
-        char* args[]={"./worker",rSec,rNano,0};
-        execlp(args[0],args[0],args[1],args[2],args[3]);
+        char* args[]={"./worker",timeLimit,0};
+        execlp(args[0],args[0],args[1],args[2]);
 	}
       else if (pid > 0)
 	{
@@ -74,12 +73,12 @@ int forker (int totaltoLaunch, int simulLimit, int timeLimit, int* totalLaunched
     return (0);
 }
 
-bool checkifChildTerminated(int status, PCB *processTable)
+bool checkifChildTerminated(int status, PCB *processTable, int size)
 {
     int pid = waitpid(-1, &status, WNOHANG);
     int i = 0;
     if (pid > 0){
-    for (i; i < 20; i++){
+    for (i; i < size; i++){
         if (processTable[i].pid == pid)
             processTable[i].occupied = 0;
     }
@@ -88,13 +87,22 @@ bool checkifChildTerminated(int status, PCB *processTable)
     else if (pid == 0)
         return false;
 }
-
-void printStruct (struct PCB *processTable, int size)
+void initializeStruct(struct PCB *processTable){
+int i = 0;
+for (i; i < 20; i++){
+processTable[i].occupied = 0;
+processTable[i].pid = 0;
+processTable[i].startSeconds = 0;
+processTable[i].startNano = 0;
+}
+}
+void printStruct (struct PCB *processTable,int* shmSec,int* shmNano)
 {
+  printf("OSS PID: %d SysClock: %d SysclockNano: %d\n", getpid(),*shmSec,*shmNano);
   printf ("Process Table: \n");
   printf ("ENTRY  OCCUPIED  PID  STARTS  STARTN\n");
   int i = 0;
-  for (i; i < size; i++)
+  for (i; i < 20; i++)
     {
       printf ("%d        %d       %d    %d        %d\n", i,
 	      processTable[i].occupied, processTable[i].pid,
@@ -102,9 +110,22 @@ void printStruct (struct PCB *processTable, int size)
     }
 }
 
+void sig_handler(int signal){
+printf("\n\nSIGNAL RECEIVED, TERMINATING PROGRAM\n\n");
+stillChildrenRunning = false;
+signalReceived = true;
+}
+
+void sig_alarmHandler(int sigAlarm){
+printf("TIMEOUT ACHIEVED. PROGRAM TERMINATING\n");
+stillChildrenRunning = false;
+signalReceived = true;
+}
+
 char *x = NULL;
 char *y = NULL;
 char *z = NULL;
+
 
 
 int main (int argc, char **argv)
@@ -128,22 +149,26 @@ int main (int argc, char **argv)
 	  break;
 	}
     }
-    
+ 
+  
     //INITIALIZE ALL VARIABLES
   int totaltoLaunch = 0;	// int to hold -n arg
   int simulLimit = 0;		// int to hold -s arg
   int totalLaunched = 0;	// int to count total children launched
   totaltoLaunch = atoi (x);	// casting the argv to ints
   simulLimit = atoi (y);
-  int timeLimit = atoi (z);
-  int status;
+  char* timeLimit = z;
+  int status; 
   int exCess;
   int *shmSec;
   int *shmNano;
   PCB processTable[20];
-  bool stillChildrenRunning = true;
+ // bool stillChildrenRunning = true;
   bool initialLaunch = false;
-  
+ 
+ signal(SIGINT, sig_handler);
+ signal(SIGALRM, sig_alarmHandler);
+ alarm(60);
 
   int shmid = shmget (shmkey, 2 * sizeof (int), 0777 | IPC_CREAT);	// create shared memory
   if (shmid == -1)
@@ -158,19 +183,20 @@ int main (int argc, char **argv)
   *shmSec = 0; // initialize clock to zero
   *shmNano = 0;
     
-    
+ // initialize struct to 0
+ initializeStruct(processTable);
    while(stillChildrenRunning){
   // FORK CHILDREN 
     incrementClock(shmSec,shmNano);
-    if (*shmNano == 50000){
-    printStruct (processTable, 20);
+    if (*shmNano == 500000){
+    printStruct (processTable, shmSec, shmNano);
     }
     if(initialLaunch == false){
         exCess = forker (totaltoLaunch, simulLimit, timeLimit, &totalLaunched, processTable, shmSec, shmNano);
         initialLaunch = true;
     }
     bool childHasTerminated = false;
-    childHasTerminated = checkifChildTerminated(status, processTable);
+    childHasTerminated = checkifChildTerminated(status, processTable,20);
     if(childHasTerminated == true){
         if (exCess > 0){
             forker (1, 1, timeLimit, &totalLaunched, processTable, shmSec,shmNano);
@@ -181,8 +207,17 @@ int main (int argc, char **argv)
     if (totaltoLaunch == 0)
             stillChildrenRunning = false;
     }
+if (signalReceived == true){ //KILL ALL CHILDREN IF SIGNAL
+int i = 0;
+pid_t childPid;
+for (i;i<20;i++){
+	if (processTable[i].pid > 0 && processTable[i].occupied == 1){ // IF there is a process who is still runnning
+		childPid = processTable[i].pid;
+		kill(childPid, SIGKILL);
+	}
+}
+}
 
-printStruct (processTable, 20);
   //DETACH SHARED MEMORY
   shmdt (shmSec);
   shmctl (shmid, IPC_RMID, NULL);
@@ -192,7 +227,6 @@ printStruct (processTable, 20);
 
 
 
-// MADE THIS COMMENT
 
 
 
